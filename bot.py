@@ -2,7 +2,9 @@ import os
 import logging
 import json
 import re
+import threading
 from datetime import datetime, timedelta
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram import Update
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
@@ -245,8 +247,28 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+# ── Fake HTTP server (Render free Web Service requires a bound port) ─────────
+class PingHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot is alive!")
+
+    def log_message(self, format, *args):
+        pass  # silence default HTTP logs
+
+
+def run_fake_server():
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), PingHandler)
+    server.serve_forever()
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
+    # Start fake web server in a background thread so Render sees an open port
+    threading.Thread(target=run_fake_server, daemon=True).start()
+
     app = Application.builder().token(TELEGRAM_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
