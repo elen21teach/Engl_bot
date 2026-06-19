@@ -1,0 +1,12 @@
+services:
+  - type: worker
+    name: english-teacher-bot
+    env: python
+    plan: free
+    buildCommand: "apt-get update && apt-get install -y ffmpeg && pip install -r requirements.txt"
+    startCommand: "python bot.py"
+    envVars:
+      - key: TELEGRAM_TOKEN
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
