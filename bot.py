@@ -1,6 +1,7 @@
 import os
 import logging
 import json
+import asyncio
 import threading
 from datetime import datetime, timedelta
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -59,12 +60,12 @@ TOPICS = [
 
 SYSTEM_PROMPT = """You are a friendly English teacher for a Russian-speaking student at A1 level.
 
-RULES — follow them strictly every message:
+RULES - follow them strictly every message:
 
 1. If the student writes in RUSSIAN:
    - Reply in simple English (A1 level, short sentences).
    - Always add a Russian translation below, like:
-     Перевод: ...
+     Perevod: ...
 
 2. If the student writes in ENGLISH:
    - First, correct ALL grammar/spelling mistakes.
@@ -98,7 +99,7 @@ def ask_claude(user_id: str, user_message: str) -> str:
         messages=messages
     )
     reply = response.content[0].text
-    user["history"].append({"role": "user",     "content": user_message})
+    user["history"].append({"role": "user", "content": user_message})
     user["history"].append({"role": "assistant", "content": reply})
     if len(user["history"]) > 40:
         user["history"] = user["history"][-40:]
@@ -110,39 +111,39 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     get_user(user_id)
     save_state(state)
     welcome = (
-        "👋 Hello! I am your English teacher!\n"
+        "Hello! I am your English teacher!\n"
         "Привет! Я твой учитель английского!\n\n"
-        "📌 How it works:\n"
-        "• Write in Russian → I answer in English + translation\n"
-        "• Write in English → I correct your mistakes\n"
-        "• Every 3 days I give you a new speaking topic 🎤\n\n"
-        "Let's start! What is your name? 😊\n"
+        "How it works:\n"
+        "Write in Russian - I answer in English + translation\n"
+        "Write in English - I correct your mistakes\n"
+        "Every 3 days I give you a new speaking topic\n\n"
+        "Let's start! What is your name?\n"
         "Начнём! Как тебя зовут?"
     )
     await update.message.reply_text(welcome)
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
-    user    = get_user(user_id)
-    text    = update.message.text
+    user = get_user(user_id)
+    text = update.message.text
     topic_message = ""
     if should_send_topic(user):
         topic = get_next_topic(user)
         user["last_topic_date"] = datetime.now().isoformat()
-        user["topic_number"]   += 1
+        user["topic_number"] += 1
         save_state(state)
         topic_message = (
-            f"\n\n🎤 Speaking Practice Topic:\n"
-            f"{topic}\n\n"
-            f"Тема для практики — напиши об этом! Не бойся ошибок 💪"
+            "\n\nSpeaking Practice Topic:\n"
+            + topic
+            + "\n\nТема для практики - напиши об этом! Не бойся ошибок!"
         )
     reply = ask_claude(user_id, text)
     await update.message.reply_text(reply + topic_message)
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🎤 Voice messages coming soon!\n"
-        "Голосовые сообщения — скоро! Пока пиши текстом 😊"
+        "Voice messages coming soon!\n"
+        "Голосовые сообщения скоро! Пока пиши текстом."
     )
 
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -150,7 +151,7 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     state[user_id] = {"last_topic_date": None, "topic_number": 0, "history": []}
     save_state(state)
     await update.message.reply_text(
-        "🔄 History cleared! Let's start fresh.\n"
+        "History cleared! Let's start fresh.\n"
         "История очищена! Начинаем сначала."
     )
 
@@ -163,7 +164,6 @@ class PingHandler(BaseHTTPRequestHandler):
         pass
 
 def run_bot():
-   import asyncio
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     app = Application.builder().token(TELEGRAM_TOKEN).build()
