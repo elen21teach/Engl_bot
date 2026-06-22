@@ -64,14 +64,13 @@ RULES - follow them strictly every message:
 
 1. If the student writes in RUSSIAN:
    - Reply in simple English (A1 level, short sentences).
-   - Always add a Russian translation below, like:
-     Perevod: ...
+   - Always add a Russian translation below like: Perevod: ...
 
 2. If the student writes in ENGLISH:
    - First, correct ALL grammar/spelling mistakes.
-   - Show the corrected sentence clearly: Correct: "..."
+   - Show the corrected sentence: Correct: "..."
    - Explain each mistake briefly in Russian.
-   - Then continue the conversation naturally in simple English + Russian translation.
+   - Then continue in simple English + Russian translation.
    - If there are NO mistakes, praise them warmly!
 
 3. Always be encouraging, warm, patient.
@@ -110,17 +109,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     get_user(user_id)
     save_state(state)
-    welcome = (
+    await update.message.reply_text(
         "Hello! I am your English teacher!\n"
         "Привет! Я твой учитель английского!\n\n"
-        "How it works:\n"
         "Write in Russian - I answer in English + translation\n"
         "Write in English - I correct your mistakes\n"
-        "Every 3 days I give you a new speaking topic\n\n"
+        "Every 3 days - new speaking topic\n\n"
         "Let's start! What is your name?\n"
         "Начнём! Как тебя зовут?"
     )
-    await update.message.reply_text(welcome)
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
@@ -155,6 +152,7 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "История очищена! Начинаем сначала."
     )
 
+# HTTP сервер в фоновом потоке
 class PingHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -163,24 +161,29 @@ class PingHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
 
-def run_bot():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+def run_http_server():
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), PingHandler)
+    logger.info(f"HTTP server listening on port {port}")
+    server.serve_forever()
+
+async def main():
+    # HTTP сервер в фоне
+    threading.Thread(target=run_http_server, daemon=True).start()
+    await asyncio.sleep(1)  # даём серверу секунду запуститься
+
+    # Бот в главном потоке через asyncio
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("reset", reset))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
-    logger.info("Bot is running...")
-    app.run_polling(drop_pending_updates=True)
 
-def main():
-    port = int(os.environ.get("PORT", 10000))
-    server = HTTPServer(("0.0.0.0", port), PingHandler)
-    logger.info(f"HTTP server listening on port {port}")
-    bot_thread = threading.Thread(target=run_bot, daemon=True)
-    bot_thread.start()
-    server.serve_forever()
+    logger.info("Bot is running...")
+    async with app:
+        await app.start()
+        await app.updater.start_polling(drop_pending_updates=True)
+        await asyncio.Event().wait()  # ждём бесконечно
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
