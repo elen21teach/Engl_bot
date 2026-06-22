@@ -163,6 +163,9 @@ class PingHandler(BaseHTTPRequestHandler):
         pass
 
 def run_bot():
+   import asyncio
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("reset", reset))
