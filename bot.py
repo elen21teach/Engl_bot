@@ -91,7 +91,6 @@ def get_next_topic(user: dict) -> str:
 def ask_claude(user_id: str, user_message: str) -> str:
     user = get_user(user_id)
     messages = user["history"][-20:] + [{"role": "user", "content": user_message}]
-
     response = claude.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=1000,
@@ -99,12 +98,10 @@ def ask_claude(user_id: str, user_message: str) -> str:
         messages=messages
     )
     reply = response.content[0].text
-
     user["history"].append({"role": "user",     "content": user_message})
     user["history"].append({"role": "assistant", "content": reply})
     if len(user["history"]) > 40:
         user["history"] = user["history"][-40:]
-
     save_state(state)
     return reply
 
@@ -128,7 +125,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     user    = get_user(user_id)
     text    = update.message.text
-
     topic_message = ""
     if should_send_topic(user):
         topic = get_next_topic(user)
@@ -140,7 +136,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"{topic}\n\n"
             f"Тема для практики — напиши об этом! Не бойся ошибок 💪"
         )
-
     reply = ask_claude(user_id, text)
     await update.message.reply_text(reply + topic_message)
 
@@ -159,7 +154,6 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "История очищена! Начинаем сначала."
     )
 
-# ── HTTP server — запускается ПЕРВЫМ, до бота ─────────────────────────────────
 class PingHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -178,16 +172,11 @@ def run_bot():
     app.run_polling(drop_pending_updates=True)
 
 def main():
-    # Сначала открываем порт — Render его увидит
     port = int(os.environ.get("PORT", 10000))
     server = HTTPServer(("0.0.0.0", port), PingHandler)
     logger.info(f"HTTP server listening on port {port}")
-
-    # Бот запускается в отдельном потоке
     bot_thread = threading.Thread(target=run_bot, daemon=True)
     bot_thread.start()
-
-    # HTTP сервер работает в главном потоке
     server.serve_forever()
 
 if __name__ == "__main__":
