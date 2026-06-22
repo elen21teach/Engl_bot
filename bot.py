@@ -1,8 +1,9 @@
+
 import os
 import logging
 import json
-import re
 import threading
+import requests
 from datetime import datetime, timedelta
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram import Update
@@ -11,7 +12,6 @@ from telegram.ext import (
     filters, ContextTypes
 )
 import anthropic
-import speech_recognition as sr
 from pydub import AudioSegment
 import tempfile
 
@@ -127,25 +127,37 @@ def ask_claude(user_id: str, user_message: str) -> str:
 
 # ── Voice transcription ───────────────────────────────────────────────────────
 def transcribe_voice(ogg_path: str) -> str:
-    """Convert OGG → WAV → text via SpeechRecognition (Google)."""
+    """Convert OGG → WAV → send to Google Speech API."""
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
         wav_path = tmp.name
 
     audio = AudioSegment.from_ogg(ogg_path)
+    audio = audio.set_channels(1).set_frame_rate(16000)
     audio.export(wav_path, format="wav")
 
-    recognizer = sr.Recognizer()
-    with sr.AudioFile(wav_path) as source:
-        audio_data = recognizer.record(source)
+    with open(wav_path, "rb") as f:
+        wav_data = f.read()
+    os.unlink(wav_path)
+
+    url = "http://www.google.com/speech-api/v2/recognize"
+    params = {
+        "client": "chromium",
+        "lang":   "en-US",
+        "key":    "AIzaSyBOti4mM-6x9WDnZIjIeyEU21OpBXqWBgw",
+    }
+    headers = {"Content-Type": "audio/l16; rate=16000"}
 
     try:
-        text = recognizer.recognize_google(audio_data, language="en-US")
-        return text
-    except sr.UnknownValueError:
-        return ""
-    except sr.RequestError as e:
-        logger.error(f"Google SR error: {e}")
-        return ""
+        resp = requests.post(url, params=params, headers=headers, data=wav_data, timeout=10)
+        # Response has two JSON lines; first is empty, second has result
+        for line in resp.text.strip().splitlines():
+            if '"transcript"' in line:
+                import json as _json
+                data = _json.loads(line)
+                return data["result"][0]["alternative"][0]["transcript"]
+    except Exception as e:
+        logger.error(f"Transcription error: {e}")
+    return ""
 
 # ── Handlers ──────────────────────────────────────────────────────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
