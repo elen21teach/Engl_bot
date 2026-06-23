@@ -10,7 +10,7 @@ from telegram.ext import (
     Application, CommandHandler, MessageHandler,
     filters, ContextTypes
 )
-import anthropic
+from groq import Groq
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -18,9 +18,31 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-TELEGRAM_TOKEN    = os.environ["TELEGRAM_TOKEN"]
-ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
-claude = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
+GROQ_API_KEY   = os.environ["GROQ_API_KEY"]
+
+groq_client = Groq(api_key=GROQ_API_KEY)
+
+SYSTEM_PROMPT = """You are a friendly English teacher for a Russian-speaking student at A1 level.
+
+RULES - follow them strictly every message:
+
+1. If the student writes in RUSSIAN:
+   - Reply in simple English (A1 level, short sentences).
+   - Always add a Russian translation below like:
+     Перевод: ...
+
+2. If the student writes in ENGLISH:
+   - First, correct ALL grammar/spelling mistakes.
+   - Show the corrected sentence: Correct: "..."
+   - Explain each mistake briefly in Russian.
+   - Then continue in simple English + Russian translation.
+   - If there are NO mistakes, praise them warmly!
+
+3. Always be encouraging, warm, patient.
+4. Use very simple vocabulary (A1). Short sentences. No complex grammar.
+
+Remember: your goal is to help the student improve and feel confident!"""
 
 STATE_FILE = "state.json"
 
@@ -58,26 +80,6 @@ TOPICS = [
     "Describe your best friend: appearance and personality.",
 ]
 
-SYSTEM_PROMPT = """You are a friendly English teacher for a Russian-speaking student at A1 level.
-
-RULES - follow them strictly every message:
-
-1. If the student writes in RUSSIAN:
-   - Reply in simple English (A1 level, short sentences).
-   - Always add a Russian translation below like: Perevod: ...
-
-2. If the student writes in ENGLISH:
-   - First, correct ALL grammar/spelling mistakes.
-   - Show the corrected sentence: Correct: "..."
-   - Explain each mistake briefly in Russian.
-   - Then continue in simple English + Russian translation.
-   - If there are NO mistakes, praise them warmly!
-
-3. Always be encouraging, warm, patient.
-4. Use very simple vocabulary (A1). Short sentences. No complex grammar.
-
-Remember: your goal is to help the student improve and feel confident!"""
-
 def should_send_topic(user: dict) -> bool:
     if user["last_topic_date"] is None:
         return True
@@ -88,20 +90,26 @@ def get_next_topic(user: dict) -> str:
     idx = user["topic_number"] % len(TOPICS)
     return TOPICS[idx]
 
-def ask_claude(user_id: str, user_message: str) -> str:
+def ask_groq(user_id: str, user_message: str) -> str:
     user = get_user(user_id)
-    messages = user["history"][-20:] + [{"role": "user", "content": user_message}]
-    response = claude.messages.create(
-        model="claude-sonnet-4-6",
+
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    for msg in user["history"][-20:]:
+        messages.append({"role": msg["role"], "content": msg["content"]})
+    messages.append({"role": "user", "content": user_message})
+
+    response = groq_client.chat.completions.create(
+        model="llama-3.1-70b-versatile",
+        messages=messages,
         max_tokens=1000,
-        system=SYSTEM_PROMPT,
-        messages=messages
     )
-    reply = response.content[0].text
+    reply = response.choices[0].message.content
+
     user["history"].append({"role": "user", "content": user_message})
     user["history"].append({"role": "assistant", "content": reply})
     if len(user["history"]) > 40:
         user["history"] = user["history"][-40:]
+
     save_state(state)
     return reply
 
@@ -123,6 +131,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     user = get_user(user_id)
     text = update.message.text
+
     topic_message = ""
     if should_send_topic(user):
         topic = get_next_topic(user)
@@ -134,8 +143,16 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             + topic
             + "\n\nТема для практики - напиши об этом! Не бойся ошибок!"
         )
-    reply = ask_claude(user_id, text)
-    await update.message.reply_text(reply + topic_message)
+
+    try:
+        reply = ask_groq(user_id, text)
+        await update.message.reply_text(reply + topic_message)
+    except Exception as e:
+        logger.error(f"Groq error: {e}")
+        await update.message.reply_text(
+            "Sorry, something went wrong. Please try again!\n"
+            "Извини, что-то пошло не так. Попробуй ещё раз!"
+        )
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -152,7 +169,6 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "История очищена! Начинаем сначала."
     )
 
-# HTTP сервер в фоновом потоке
 class PingHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -168,11 +184,9 @@ def run_http_server():
     server.serve_forever()
 
 async def main():
-    # HTTP сервер в фоне
     threading.Thread(target=run_http_server, daemon=True).start()
-    await asyncio.sleep(1)  # даём серверу секунду запуститься
+    await asyncio.sleep(1)
 
-    # Бот в главном потоке через asyncio
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("reset", reset))
@@ -183,7 +197,7 @@ async def main():
     async with app:
         await app.start()
         await app.updater.start_polling(drop_pending_updates=True)
-        await asyncio.Event().wait()  # ждём бесконечно
+        await asyncio.Event().wait()
 
 if __name__ == "__main__":
     asyncio.run(main())
