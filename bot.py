@@ -99,7 +99,7 @@ def ask_groq(user_id: str, user_message: str) -> str:
     messages.append({"role": "user", "content": user_message})
 
     response = groq_client.chat.completions.create(
-        model="llama-3.1-70b-versatile",
+        model="llama-3.3-70b-versatile",
         messages=messages,
         max_tokens=1000,
     )
